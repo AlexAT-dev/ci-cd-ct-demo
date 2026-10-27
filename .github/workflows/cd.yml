@@ -1,0 +1,103 @@
+# CD: стартує тільки після УСПІШНОГО CI на гілці main.
+# build & push образу -> deploy staging + smoke -> (ручне підтвердження) -> deploy production + smoke.
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  publish:
+    name: Build & push image to GHCR
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - id: meta
+        run: |
+          image=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          echo "image=$image:${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          echo "latest=$image:latest" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        run: |
+          docker build --build-arg APP_VERSION=${{ github.event.workflow_run.head_sha }} \
+            -t ${{ steps.meta.outputs.image }} -t ${{ steps.meta.outputs.latest }} .
+          docker push ${{ steps.meta.outputs.image }}
+          docker push ${{ steps.meta.outputs.latest }}
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # ДЕМО: "деплоїмо" опублікований образ у контейнер на раннері.
+      # У реальному проєкті тут буде: ssh на сервер / kubectl set image / Render deploy hook тощо.
+      - name: Deploy (simulated)
+        run: |
+          docker run -d --name shop-api -p 8000:8000 ${{ needs.publish.outputs.image }}
+          for i in $(seq 1 30); do curl -sf http://localhost:8000/health && break; sleep 1; done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest httpx
+      - name: Post-deploy smoke tests (staging)
+        env:
+          BASE_URL: http://localhost:8000
+        run: pytest tests/smoke -v
+
+  deploy-production:
+    name: Deploy to production
+    needs: [publish, deploy-staging]
+    runs-on: ubuntu-latest
+    # В Settings → Environments → production увімкніть "Required reviewers",
+    # тоді цей job чекатиме ручного підтвердження (Continuous Delivery).
+    # Без reviewers він піде автоматично (Continuous Deployment).
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Deploy (simulated)
+        run: |
+          docker run -d --name shop-api -p 8000:8000 ${{ needs.publish.outputs.image }}
+          for i in $(seq 1 30); do curl -sf http://localhost:8000/health && break; sleep 1; done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest httpx
+      - name: Post-deploy smoke tests (production)
+        env:
+          BASE_URL: http://localhost:8000
+        run: pytest tests/smoke -v
