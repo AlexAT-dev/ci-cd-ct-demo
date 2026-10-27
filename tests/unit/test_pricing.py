@@ -51,6 +51,9 @@ class TestPromoDiscount:
         with pytest.raises(pricing.PricingError, match="Unknown promo code"):
             pricing.promo_discount(D("100.00"), "FREE")
 
+    def test_save20_code(self):
+        assert pricing.promo_discount(D("100.00"), "SAVE20") == D("20.00")
+
 
 class TestQuote:
     def test_full_quote(self):
