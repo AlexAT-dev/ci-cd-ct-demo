@@ -11,6 +11,7 @@ BULK_DISCOUNT = Decimal("0.05")
 PROMO_CODES: dict[str, dict] = {
     "SAVE10": {"type": "percent", "value": Decimal("10")},
     "SAVE20": {"type": "percent", "value": Decimal("20")},
+    "SAVE30": {"type": "percent", "value": Decimal("30")},
     "MINUS50": {"type": "fixed", "value": Decimal("50"), "min_subtotal": Decimal("200")},
 }
 
