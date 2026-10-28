@@ -55,7 +55,7 @@ class TestPromoDiscount:
         assert pricing.promo_discount(D("100.00"), "SAVE20") == D("20.00")
 
     def test_save30_code(self):
-        assert pricing.promo_discount(D("100.00"), "SAVE30") == D("3000.00")
+        assert pricing.promo_discount(D("100.00"), "SAVE30") == D("30.00")
 
 
 class TestQuote:
